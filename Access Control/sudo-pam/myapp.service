@@ -1,0 +1,12 @@
+[Unit]
+Description=MyApp Service
+After=network.target
+
+[Service]
+Type=simple
+User=myapp
+ExecStart=/usr/bin/sleep infinity
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
