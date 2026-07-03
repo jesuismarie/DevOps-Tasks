@@ -34,7 +34,7 @@ iface enp0s3 inet static
     dns-nameservers 8.8.8.8 1.1.1.1
 ```
 
-3. Assign IP addresses
+3. Assign IP addresses — replace `X` with the value below on each node
 
 | VM        | IP             |
 | --------- | -------------- |
@@ -66,15 +66,15 @@ sudo hostnamectl set-hostname db-node-1
 
 Use the following values:
 
-| VM | Hostname |
-|----|----------|
+| VM        | Hostname  |
+|-----------|-----------|
 | db-node-1 | db-node-1 |
 | db-node-2 | db-node-2 |
 | db-node-3 | db-node-3 |
 
 ### `/etc/hosts` Configuration
 
-> ⚠️ Required for cluster communication.
+> ⚠️ Required for cluster communication. This file is **identical on all 3 nodes**.
 
 ```text
 192.168.86.101 db-node-1
@@ -103,7 +103,7 @@ During installation, you will be prompted to set the MySQL root password.
 
 > ⚠️ Use the **same strong password on all three nodes**.
 
-## Configure Percona XtraDB Cluster (Without SSL Encryption)
+### Configure Percona XtraDB Cluster (Without SSL Encryption)
 
 1. Configure each node
 
@@ -138,21 +138,23 @@ pxc-encrypt-cluster-traffic=OFF
 
 2. Start the cluster
 
-#### Bootstrap Node 1
+> ⚠️ Bootstrap is **only** used to create a brand-new cluster from nothing. Only ever run it on **one** node.
+
+**db-node-1 — bootstrap**
 
 ```bash
-sudo systemctl restart mysql@bootstrap
+sudo systemctl start mysql@bootstrap
 ```
 
-#### Start Nodes 2 and 3
+**db-node-2 and db-node-3 — normal start (join via SST)**
 
 ```bash
-sudo systemctl restart mysql
+sudo systemctl start mysql
 ```
 
-3. Verify the cluster
+3. Verify the Cluster
 
-Check cluster size:
+Run on any node:
 
 ```bash
 mysql -u root -p -e "SHOW STATUS LIKE 'wsrep_cluster_size';"
@@ -171,29 +173,176 @@ wsrep_cluster_size = 3
 wsrep_local_state_comment = Synced
 ```
 
-#### Important Notes About Cluster State
+### Enable SSL Encryption (Optional)
 
-All nodes in the same **Galera / Percona XtraDB Cluster** share the same **cluster UUID (state UUID)**.
-This UUID is automatically generated during the first bootstrap and then shared across all nodes in the cluster.
+**db-node-1**
+
+1. Generate the CA key and certificate
+
+```bash
+mkdir ~/ssl-certs && cd ~/ssl-certs
+
+openssl genrsa 2048 > ca-key.pem
+openssl req -new -x509 -nodes -days 3650 \
+  -key ca-key.pem -out ca.pem \
+  -subj "/CN=PXC-Cluster-CA"
+```
+
+2. Generate the server private key and CSR:
+
+```bash
+openssl req -newkey rsa:2048 -nodes -days 3650 \
+  -keyout server-key.pem \
+  -out server-req.pem \
+  -subj "/CN=pxc-server"
+```
+
+> ⚠️ Do NOT use the same Common Name you used for your CA certificate.
+
+3. Generate the server certificate:
+
+```bash
+openssl x509 -req -in server-req.pem \
+  -CA ca.pem -CAkey ca-key.pem \
+  -set_serial 01 -days 3650 \
+  -out server-cert.pem
+```
+
+4. Send the key and certificate files to the other two nodes:
+
+```bash
+scp ca.pem server-cert.pem server-key.pem <user>@192.168.86.102:/tmp/
+scp ca.pem server-cert.pem server-key.pem <user>@192.168.86.103:/tmp/
+```
+
+5. Move certificates into place on db-node-1:
+
+```bash
+mkdir -p /etc/mysql/certs
+mv ~/ssl-certs/ca.pem ~/ssl-certs/server-key.pem ~/ssl-certs/server-cert.pem /etc/mysql/certs/
+chown -R mysql:mysql /etc/mysql/certs
+```
+
+**db-node-2 and db-node-3**
+
+1. install the certs sent from db-node-1
+
+```bash
+mkdir -p /etc/mysql/certs
+mv /tmp/ca.pem /tmp/server-key.pem /tmp/server-cert.pem /etc/mysql/certs/
+chown -R mysql:mysql /etc/mysql/certs
+```
+
+**All 3 Nodes**
+
+1. Update the MySQL config
+
+```bash
+sudo vim /etc/mysql/mysql.conf.d/mysqld.cnf
+```
+
+> Same substitution rules as the non-SSL config above — keep `server-id`, `wsrep_node_name`, and `wsrep_node_address` unique per node:
+
+```ini
+[mysqld]
+
+server-id=<node-num>
+
+wsrep_provider=/usr/lib/galera4/libgalera_smm.so
+
+wsrep_provider_options="socket.ssl=yes;socket.ssl_key=/etc/mysql/certs/server-key.pem;socket.ssl_cert=/etc/mysql/certs/server-cert.pem;socket.ssl_ca=/etc/mysql/certs/ca.pem;"
+
+wsrep_cluster_address=gcomm://192.168.86.101,192.168.86.102,192.168.86.103
+wsrep_cluster_name=pxc-cluster
+
+wsrep_node_name=pxc-node-<node-num>
+wsrep_node_address=192.168.86.10X
+pxc_strict_mode=ENFORCING
+
+wsrep_sst_method=xtrabackup-v2
+
+ssl-key=/etc/mysql/certs/server-key.pem
+ssl-ca=/etc/mysql/certs/ca.pem
+ssl-cert=/etc/mysql/certs/server-cert.pem
+
+[sst]
+encrypt=4
+ssl-key=/etc/mysql/certs/server-key.pem
+ssl-ca=/etc/mysql/certs/ca.pem
+ssl-cert=/etc/mysql/certs/server-cert.pem
+```
+
+2. Start the Cluster with SSL
+
+**db-node-1 — bootstrap**
+
+```bash
+sudo systemctl start mysql@bootstrap
+```
+
+**db-node-2 and db-node-3 — normal start**
+
+```bash
+sudo systemctl start mysql
+```
+
+### Important Notes About Cluster State
+
+All nodes in the same **Galera / Percona XtraDB Cluster** share the same **cluster UUID (state UUID)**. This UUID is generated automatically during the first bootstrap and then shared across all nodes.
 
 Only one node can be used to bootstrap the cluster.
 
-Before starting the cluster, check:
+Before starting a node, check:
 
 ```bash
-/var/lib/mysql/grastate.dat
+cat /var/lib/mysql/grastate.dat
 ```
 
-On the bootstrap node, the value must be:
+| Node                           | Expected `safe_to_bootstrap` |
+|--------------------------------|------------------------------|
+| The bootstrap node (db-node-1) | `1`                          |
+| All other nodes                | `0`                          |
 
-```text
-safe_to_bootstrap: 1
+> ⚠️ Do NOT manually change this value during normal operations. It is only touched during cluster recovery after an unclean shutdown.
+
+#### Restarting the Cluster Safely
+
+Once the cluster is up and synced, restarting nodes is **not** the same as the first-time bootstrap. Do it in this order so you never lose quorum or corrupt state.
+
+1. **db-node-3** — stop it first (not the reference node)
+
+```bash
+sudo systemctl stop mysql
 ```
 
-On all other nodes, it must remain:
+2. **db-node-2** — stop it next
 
-```text
-safe_to_bootstrap: 0
+```bash
+sudo systemctl stop mysql
 ```
 
-> ⚠️ Do NOT manually change this value during normal operations. It is only modified during cluster recovery after an unclean shutdown.
+At this point db-node-1 is the only node left running. It's still serving traffic alone (`wsrep_cluster_size = 1`), and its clean shutdown state marks it as the safe reference node.
+
+3. **db-node-1** — confirm it's the safe node, then restart it as a fresh bootstrap (as the last man standing, a plain `restart mysql` will hang trying to reach peers that aren't there anymore)
+
+```bash
+cat /var/lib/mysql/grastate.dat   # confirm safe_to_bootstrap: 1
+sudo systemctl restart mysql@bootstrap
+```
+
+4. **db-node-2** — start normally, it will IST/SST-sync from db-node-1
+
+```bash
+sudo systemctl start mysql
+```
+
+5. **db-node-3** — start normally, same as above
+
+```bash
+sudo systemctl start mysql
+```
+
+6. Verify again with the `wsrep_cluster_size` / `wsrep_local_state_comment` checks above — expect `3` and `Synced`.
+
+> ⚠️ Never run `mysql@bootstrap` on more than one node at the same time — that creates two separate clusters (split brain) instead of one.
+> ⚠️ Never bootstrap a node whose `grastate.dat` shows `safe_to_bootstrap: 0` unless you're doing a documented crash-recovery procedure (`mysqld --wsrep-recover`).
