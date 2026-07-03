@@ -170,3 +170,30 @@ Expected output:
 wsrep_cluster_size = 3
 wsrep_local_state_comment = Synced
 ```
+
+#### Important Notes About Cluster State
+
+All nodes in the same **Galera / Percona XtraDB Cluster** share the same **cluster UUID (state UUID)**.
+This UUID is automatically generated during the first bootstrap and then shared across all nodes in the cluster.
+
+Only one node can be used to bootstrap the cluster.
+
+Before starting the cluster, check:
+
+```bash
+/var/lib/mysql/grastate.dat
+```
+
+On the bootstrap node, the value must be:
+
+```text
+safe_to_bootstrap: 1
+```
+
+On all other nodes, it must remain:
+
+```text
+safe_to_bootstrap: 0
+```
+
+> ⚠️ Do NOT manually change this value during normal operations. It is only modified during cluster recovery after an unclean shutdown.
