@@ -1,5 +1,21 @@
 # High Availability Implementation Task (Percona + HAProxy + Keepalived) 🔗💽⚡
 
+## Architecture
+
+The client connects to a single **floating (virtual) IP address** — never to any node's real IP directly.
+
+That VIP is bound, at any given moment, to whichever node is currently active. Keepalived owns that binding: it uses VRRP to assign the VIP to one node's network interface, and moves it to another node automatically if the active node fails its health check.
+
+![PXC-HA-Architecture](pxc_ha_architecture.svg)
+
+On the node holding the VIP, HAProxy is what's actually listening on that IP (port 3306). The real connection path is:
+
+`Client → Floating IP → HAProxy (on whichever node currently holds the VIP) → one of the 3 Percona nodes (chosen by HAProxy's backend health check)`
+
+HAProxy's backend check verifies each Percona node is actually synced with the cluster (`wsrep_local_state_comment = Synced`), not just reachable — so traffic never lands on a node that's up but out of sync.
+
+The client only ever targets the VIP; Keepalived and HAProxy handle routing to a healthy node underneath.
+
 ## VM Installation
 
 Create **3 virtual machines** and install **Debian 13** on each.
@@ -225,7 +241,7 @@ chown -R mysql:mysql /etc/mysql/certs
 
 **db-node-2 and db-node-3**
 
-1. install the certs sent from db-node-1
+1. Install the certs sent from db-node-1
 
 ```bash
 mkdir -p /etc/mysql/certs
