@@ -362,3 +362,121 @@ sudo systemctl start mysql
 
 > ⚠️ Never run `mysql@bootstrap` on more than one node at the same time — that creates two separate clusters (split brain) instead of one.
 > ⚠️ Never bootstrap a node whose `grastate.dat` shows `safe_to_bootstrap: 0` unless you're doing a documented crash-recovery procedure (`mysqld --wsrep-recover`).
+
+## Set Up HAProxy
+
+### Install HAProxy
+
+> Use the HAProxy version provided by your supported operating system repositories.
+
+```bash
+sudo apt update
+sudo apt install haproxy
+```
+
+### Cluster Healthcheck
+
+1. Login to MySQL
+
+```bash
+mysql -u root -p
+```
+
+2. Create a user for the cluster healthcheck
+
+```mysql
+CREATE USER '<clustercheck-user>'@'localhost' IDENTIFIED BY '<clustercheck-password>';
+
+GRANT PROCESS ON *.* TO '<clustercheck-user>'@'localhost';
+
+FLUSH PRIVILEGES;
+```
+
+> You can use the default user and password (user: `clustercheckuser`, password: `clustercheckpassword!`)
+
+3. Verify the user was created
+
+```mysql
+SELECT user, host FROM mysql.user WHERE user = "clustercheckuser";
+```
+
+4. Verify the script itself works
+
+> On PXC 8.4, `clustercheck` is provided by the `percona-xtradb-cluster-client` package (or a separate `percona-clustercheck` package depending on version).
+
+Run on the bootstrap node:
+
+```bash
+clustercheck
+```
+
+If you set a different user and password:
+
+```bash
+clustercheck <clustercheck-user> <clustercheck-password>
+```
+
+`clustercheck` also accepts these optional parameters, in order:
+
+- `user` / `password` (default `clustercheckuser` / `clustercheckpassword!`): credentials for the check. Pass `""` for either to use an empty value.
+- `available_when_donor` (default 0): by default, a node acting as SST donor is reported unavailable. Set to 1 to allow queries on a donor node — requires a non-blocking SST method like xtrabackup.
+- `log_file` (default `/dev/null`): where check logs/errors go.
+- `available_when_readonly` (default 1): whether a node in `read_only` mode is still reported available.
+- `defaults_extra_file` (default `/etc/my.cnf`): passed to the underlying `mysql` command via `--defaults-extra-file`. **Use this to store the check credentials instead of passing them as plain arguments** — otherwise the password ends up readable in the systemd unit file below.
+
+5. Expose the check over HTTP with systemd
+
+Create the socket unit:
+
+```bash
+sudo vim /etc/systemd/system/mysqlchk.socket
+```
+
+```ini
+[Unit]
+Description=Percona XtraDB Cluster Node Healthcheck Socket
+
+[Socket]
+ListenStream=9200
+Accept=yes
+
+[Install]
+WantedBy=sockets.target
+```
+
+Create the matching service template:
+
+```bash
+sudo vim /etc/systemd/system/mysqlchk@.service
+```
+
+```ini
+[Unit]
+Description=Percona XtraDB Cluster Node Healthcheck Service
+
+[Service]
+ExecStart=-/usr/bin/clustercheck
+StandardInput=socket
+StandardOutput=socket
+```
+
+> Credentials aren't passed on the command line here — instead, put them in a `defaults_extra_file` (e.g. `/etc/my.cnf.local`, root-readable only) so they never appear in the unit file or in `ps` output.
+
+6. Reload systemd so it picks up the new units
+
+```bash
+sudo systemctl daemon-reload
+```
+
+7. Enable and start the socket
+
+```bash
+sudo systemctl enable --now mysqlchk.socket
+```
+
+8. Verify it's listening and responding
+
+```bash
+sudo ss -ltnp | grep 9200
+curl localhost:9200
+```
