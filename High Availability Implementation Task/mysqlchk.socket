@@ -1,0 +1,9 @@
+[Unit]
+Description=Percona XtraDB Cluster Node Healthcheck Socket
+
+[Socket]
+ListenStream=9200
+Accept=yes
+
+[Install]
+WantedBy=sockets.target

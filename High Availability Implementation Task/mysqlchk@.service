@@ -1,0 +1,7 @@
+[Unit]
+Description=Percona XtraDB Cluster Node Healthcheck Service
+
+[Service]
+ExecStart=-/usr/bin/clustercheck <clustercheck-user> <clustercheck-password>
+StandardInput=socket
+StandardOutput=socket
