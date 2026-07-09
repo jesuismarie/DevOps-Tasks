@@ -14,8 +14,6 @@ On the node holding the VIP, HAProxy is what's actually listening on that IP (po
 
 HAProxy's backend check verifies each Percona node is actually synced with the cluster (`wsrep_local_state_comment = Synced`), not just reachable — so traffic never lands on a node that's up but out of sync.
 
-The client only ever targets the VIP; Keepalived and HAProxy handle routing to a healthy node underneath.
-
 ## VM Installation
 
 Create **3 virtual machines** and install **Debian 13** on each.
@@ -83,7 +81,7 @@ sudo hostnamectl set-hostname db-node-1
 Use the following values:
 
 | VM        | Hostname  |
-|-----------|-----------|
+| --------- | --------- |
 | db-node-1 | db-node-1 |
 | db-node-2 | db-node-2 |
 | db-node-3 | db-node-3 |
@@ -315,7 +313,7 @@ cat /var/lib/mysql/grastate.dat
 ```
 
 | Node                           | Expected `safe_to_bootstrap` |
-|--------------------------------|------------------------------|
+| ------------------------------ | ---------------------------- |
 | The bootstrap node (db-node-1) | `1`                          |
 | All other nodes                | `0`                          |
 
@@ -404,7 +402,7 @@ SELECT user, host FROM mysql.user WHERE user = "clustercheckuser";
 
 > On PXC 8.4, `clustercheck` is provided by the `percona-xtradb-cluster-client` package (or a separate `percona-clustercheck` package depending on version).
 
-Run on the bootstrap node:
+Run on this node:
 
 ```bash
 clustercheck
@@ -563,4 +561,138 @@ sudo systemctl restart haproxy
 
 ```bash
 sudo systemctl enable haproxy
+```
+
+## Set up KeepaliveD
+
+### Install KeepaliveD
+
+```bash
+sudo apt update
+sudo apt install keepalived
+```
+
+### Configure KeepaliveD
+
+1. Create the configuration file
+
+```bash
+sudo vim /etc/keepalived/keepalived.conf
+```
+
+2. Configure the Primary Node (db-node-1)
+
+```ini
+global_defs {
+    router_id db-node-1
+}
+
+vrrp_script check_haproxy {
+    script "killall -0 haproxy"
+    interval 2
+    weight -20
+}
+
+vrrp_instance VI_1 {
+    state MASTER
+    interface enp0s3
+    virtual_router_id 51
+    priority 150
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass secret
+    }
+    virtual_ipaddress {
+        192.168.86.100
+    }
+    track_script {
+        check_haproxy
+    }
+}
+```
+
+3. Configure the Backup Nodes (db-node-2, db-node-3)
+
+```ini
+global_defs {
+    router_id <node-hostname>
+}
+
+vrrp_script check_haproxy {
+    script "killall -0 haproxy"
+    interval 2
+    weight -20
+}
+
+vrrp_instance VI_1 {
+    state BACKUP
+    interface enp0s3
+    virtual_router_id 51
+    priority <priority>
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass secret
+    }
+    virtual_ipaddress {
+        192.168.86.100
+    }
+    track_script {
+        check_haproxy
+    }
+}
+```
+
+> `virtual_router_id` and `VI_1` must be **identical on all 3 nodes** — this is what groups them into the same VRRP election, not a per-node value.
+> Give each backup a distinct `priority` lower than the master (e.g. `150` / `100` / `90`), so there's a clear takeover order if more than one node is a candidate at the same time.
+> Replace `<node-hostname>` with each node's own hostname — this is just a label for logs, unrelated to VRRP grouping.
+
+4. Allow HAProxy to bind to an IP not yet present on the interface
+
+> ⚠️ Required on **all 3 nodes**. The VIP only lives on whichever node is currently MASTER — without this setting, HAProxy on the BACKUP nodes will fail to start once it's bound to the VIP instead of `*`.
+
+```bash
+sudo sysctl -w net.ipv4.ip_nonlocal_bind=1
+echo "net.ipv4.ip_nonlocal_bind=1" | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+```
+
+5. Set the VIP in the HAProxy configuration file
+
+Edit
+
+```bash
+sudo vim /etc/haproxy/haproxy.cfg
+```
+
+Replace the `bind *` address with the virtual address used by Keepalived
+
+```ini
+bind 192.168.86.100:3307
+```
+
+Check syntax and apply
+
+```bash
+sudo haproxy -c -f /etc/haproxy/haproxy.cfg
+sudo systemctl restart haproxy
+```
+
+6. Start Keepalived
+
+```bash
+sudo systemctl start keepalived
+```
+
+7. Enable Keepalived at boot
+
+```bash
+sudo systemctl enable keepalived
+```
+
+8. Verify the VIP
+
+```bash
+ip addr show enp0s3
 ```
