@@ -480,3 +480,87 @@ sudo systemctl enable --now mysqlchk.socket
 sudo ss -ltnp | grep 9200
 curl localhost:9200
 ```
+
+> Run all of the steps above on every cluster node, except step 2 (creating the clustercheck user) — that only needs to run once, since it replicates to all nodes automatically via the cluster.
+
+### Configure HAProxy
+
+1. Create the configuration file
+
+```bash
+sudo vim /etc/haproxy/haproxy.cfg
+```
+
+2. Configure simple load balancing between nodes
+
+```ini
+global
+    log 127.0.0.1 local0
+    maxconn 4096
+    user haproxy
+    group haproxy
+    daemon
+
+defaults
+    log     global
+    mode    tcp
+    option  dontlognull
+    retries 3
+    timeout connect 5s
+    timeout client  50s
+    timeout server  50s
+
+listen mysql-cluster
+    bind *:3307
+    mode tcp
+    option httpchk
+    balance roundrobin
+    server db01 192.168.86.101:3306 check port 9200 inter 12000 rise 3 fall 3
+    server db02 192.168.86.102:3306 check port 9200 inter 12000 rise 3 fall 3
+    server db03 192.168.86.103:3306 check port 9200 inter 12000 rise 3 fall 3
+```
+
+* **global**
+	- `log 127.0.0.1 local0` — sends HAProxy's logs to the local syslog daemon, tagged under facility `local0`.
+	- `maxconn 4096` — maximum total simultaneous connections HAProxy will accept across everything.
+	- `user haproxy` / `group haproxy` — drops root privileges after startup; runs as the unprivileged `haproxy` system user instead.
+	- `daemon` — runs HAProxy as a background daemon process rather than in the foreground.
+
+* **defaults**
+	- `log global` — use the logging target defined in the `global` section for everything below.
+	- `mode tcp` — treat traffic as raw TCP.
+	- `option dontlognull` — don't log connections that transferred zero data, keeps logs from filling with noise.
+	- `retries 3` — how many times HAProxy retries connecting to a backend server before considering that attempt failed.
+	- `timeout connect 5s` — max time to wait while establishing a connection to a backend server.
+	- `timeout client 50s` — max time to wait for data from the client side before timing out an idle connection.
+	- `timeout server 50s` — max time to wait for data from the backend server side before timing out.
+
+* **listen mysql-cluster**
+	- `bind *:3307` — listen on port 3307 on all interfaces of this node. Port 3307 avoids clashing with the local MySQL/Percona instance already using 3306.
+	- `mode tcp` — explicit here too.
+	- `option httpchk` — health checks go over HTTP, not plain TCP.
+	- `balance roundrobin` — cycles each new connection across the 3 servers in turn, spreading load evenly across all nodes.
+	- `server db0X <ip>:3306` — the real Percona node this entry points to, on MySQL's actual port 3306.
+	- `check` — enables active health checking for this server.
+	- `port 9200` — the health check is sent to port 9200, where the `clustercheck` systemd socket listens, reporting true Galera sync state.
+	- `inter 12000` — runs the health check every 12,000ms (12 seconds).
+	- `rise 3` — a DOWN server needs 3 consecutive successful checks before HAProxy marks it UP.
+	- `fall 3` — an UP server needs 3 consecutive failed checks before HAProxy marks it DOWN.
+
+3. Check the configuration file syntax
+
+```bash
+sudo haproxy -c -f /etc/haproxy/haproxy.cfg
+```
+
+4. Apply it via systemd
+
+```bash
+sudo systemctl restart haproxy
+```
+
+5. Make sure it starts on boot
+
+```bash
+sudo systemctl enable haproxy
+```
