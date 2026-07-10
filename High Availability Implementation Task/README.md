@@ -653,9 +653,9 @@ vrrp_instance VI_1 {
 > ⚠️ Required on **all 3 nodes**. The VIP only lives on whichever node is currently MASTER — without this setting, HAProxy on the BACKUP nodes will fail to start once it's bound to the VIP instead of `*`.
 
 ```bash
-sudo sysctl -w net.ipv4.ip_nonlocal_bind=1
-echo "net.ipv4.ip_nonlocal_bind=1" | sudo tee -a /etc/sysctl.conf
-sudo sysctl -p
+echo "net.ipv4.ip_nonlocal_bind=1" | sudo tee /etc/sysctl.d/99-haproxy-vip.conf
+sudo sysctl --system
+sysctl net.ipv4.ip_nonlocal_bind
 ```
 
 5. Set the VIP in the HAProxy configuration file
