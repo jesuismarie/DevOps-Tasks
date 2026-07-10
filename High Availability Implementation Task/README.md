@@ -696,3 +696,33 @@ sudo systemctl enable keepalived
 ```bash
 ip addr show enp0s3
 ```
+
+## Validate Database Connectivity via VIP
+
+### Create an Application User
+
+> The default MySQL user only has `@'localhost'`, so it can only connect from a session running directly on that node. HAProxy runs in `mode tcp` and forwards traffic using its own node IP as the connection source — not `localhost` and not the original client's IP — so a separate user is needed for connections coming through HAProxy.
+
+1. Login to MySQL
+
+```bash
+mysql -u root -p
+```
+
+2. Create the user, allowed from any node in the cluster's subnet
+
+```mysql
+CREATE USER 'appuser'@'192.168.86.%' IDENTIFIED BY '<password>';
+
+GRANT ALL PRIVILEGES ON *.* TO 'appuser'@'192.168.86.%';
+
+FLUSH PRIVILEGES;
+```
+
+> Only run this once, on any single node — like the clustercheck user, it replicates to all 3 nodes automatically via the cluster.
+
+### Test the Connection Through the VIP
+
+```bash
+mysql -h 192.168.86.100 -P 3307 -u appuser -p -e "SELECT 1;"
+```
