@@ -726,3 +726,98 @@ FLUSH PRIVILEGES;
 ```bash
 mysql -h 192.168.86.100 -P 3307 -u appuser -p -e "SELECT 1;"
 ```
+
+## Failover Testing
+
+### Test 1
+
+1. Stop KeepaliveD from Master Node
+
+```bash
+sudo systemctl stop keepalived
+```
+
+2. Check VIP
+
+```bash
+ip addr show enp0s3
+```
+
+It must be not displayed in MASTER node, but displayed in node with priority is highest.
+
+### Test 2
+
+1. Shutdown VM
+
+```bash
+sudo shutdown -h now
+```
+
+2. Check VIP (on remaining nodes)
+
+```bash
+ip addr show enp0s3
+```
+
+VIP must appear on the node with the next highest priority. Check DB connectivity through the VIP:
+
+```bash
+mysql -h 192.168.86.100 -P 3307 -u appuser -p -e "SELECT 1;"
+```
+
+3. Restart the shutdown VM, confirm it rejoins as BACKUP
+
+```bash
+sudo systemctl status keepalived
+sudo systemctl status mysql
+```
+
+### Test 3
+
+1. Restart HAProxy on Master Node
+
+```bash
+sudo systemctl restart haproxy
+```
+
+2. Check VIP
+
+```bash
+ip addr show enp0s3
+```
+
+3. Check DB connectivity through the VIP during and after the restart
+
+```bash
+mysql -h 192.168.86.100 -P 3307 -u appuser -p -e "SELECT 1;"
+```
+
+VIP should either stay on the same node (if HAProxy recovers before `check_haproxy` fails enough times) or move to the next highest-priority node — either way, the DB connection through the VIP must not require manual intervention.
+
+### Test 4
+
+1. Simulate network loss on Master Node
+
+```bash
+sudo ip link set enp0s3 down
+```
+
+2. Check VIP (on remaining nodes)
+
+```bash
+ip addr show enp0s3
+```
+
+VIP must appear on the node with the next highest priority.
+
+3. Restore the network
+
+```bash
+sudo ip link set enp0s3 up
+```
+
+4. Confirm the node rejoins as BACKUP, not fighting for MASTER
+
+```bash
+sudo systemctl status keepalived
+```
