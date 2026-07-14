@@ -868,6 +868,59 @@ Expected ports:
 
 Confirm no other ports are listening. Confirm firewall rules restrict 9200 and the Galera ports (4444/4567) to the cluster's internal subnet only — they have no reason to be reachable from outside the 3 nodes.
 
+### Firewall
+
+> Restrict cluster-internal ports (Galera, clustercheck) to the 3 node IPs only. Only the client-facing VIP port and SSH should be reachable more broadly.
+
+Install and enable ufw on all 3 nodes:
+
+```bash
+sudo apt install -y ufw
+```
+
+Allow SSH first, before enabling ufw, to avoid locking yourself out:
+
+```bash
+sudo ufw allow 22/tcp
+```
+
+Allow cluster-internal traffic only from the other 2 nodes' IPs (repeat for each peer IP, run on all 3 nodes):
+
+```bash
+sudo ufw allow from 192.168.86.101 to any port 3306 proto tcp
+sudo ufw allow from 192.168.86.102 to any port 3306 proto tcp
+sudo ufw allow from 192.168.86.103 to any port 3306 proto tcp
+
+sudo ufw allow from 192.168.86.101 to any port 4567 proto tcp
+sudo ufw allow from 192.168.86.102 to any port 4567 proto tcp
+sudo ufw allow from 192.168.86.103 to any port 4567 proto tcp
+
+sudo ufw allow from 192.168.86.101 to any port 9200 proto tcp
+sudo ufw allow from 192.168.86.102 to any port 9200 proto tcp
+sudo ufw allow from 192.168.86.103 to any port 9200 proto tcp
+```
+
+Allow VRRP traffic between nodes (Keepalived uses protocol 112, not TCP/UDP):
+
+```bash
+sudo ufw allow from 192.168.86.101 proto vrrp
+sudo ufw allow from 192.168.86.102 proto vrrp
+sudo ufw allow from 192.168.86.103 proto vrrp
+```
+
+Allow the client-facing port from your application's subnet (adjust to your actual client network):
+
+```bash
+sudo ufw allow from 192.168.86.0/24 to any port 3307 proto tcp
+```
+
+Enable ufw:
+
+```bash
+sudo ufw enable
+sudo ufw status verbose
+```
+
 ### Startup on Reboot
 
 Confirm all required services are enabled:
