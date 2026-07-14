@@ -131,7 +131,7 @@ Add or replace the following configuration:
 
 ```ini
 [mysqld]
-
+mysqlx=OFF
 server-id=<node-num>
 
 wsrep_provider=/usr/lib/galera4/libgalera_smm.so
@@ -259,7 +259,7 @@ sudo vim /etc/mysql/mysql.conf.d/mysqld.cnf
 
 ```ini
 [mysqld]
-
+mysqlx=OFF
 server-id=<node-num>
 
 wsrep_provider=/usr/lib/galera4/libgalera_smm.so
@@ -821,3 +821,62 @@ sudo ip link set enp0s3 up
 ```bash
 sudo systemctl status keepalived
 ```
+
+## Security & Stability
+
+### Minimal Permissions
+
+HAProxy already runs as the unprivileged `haproxy` user (set in `global`). Confirm it:
+
+```bash
+ps -eo user,cmd | grep haproxy
+```
+
+Check the clustercheck service isn't running as root:
+
+```bash
+systemctl status mysqlchk@*
+```
+
+Check Keepalived's systemd unit:
+
+```bash
+systemctl cat keepalived
+```
+
+> Keepalived requires elevated network privileges to manage interfaces and send VRRP packets — it cannot run fully unprivileged. This is expected, not a gap.
+
+Confirm the `appuser` MySQL account is scoped to specific host IPs and specific privileges (see note above), not `*.*` or a subnet wildcard.
+
+### No Open or Unused Ports
+
+Check listening ports on all 3 nodes:
+
+```bash
+sudo ss -tulnp
+```
+
+Expected ports:
+
+| Port | Purpose                             |
+| ---- | ----------------------------------- |
+| 3306 | MySQL / Galera client connections   |
+| 3307 | HAProxy frontend (bound to the VIP) |
+| 9200 | Clustercheck (HTTP healthcheck)     |
+| 4567 | Galera group communication          |
+| 4444 | Galera SST                          |
+
+Confirm no other ports are listening. Confirm firewall rules restrict 9200 and the Galera ports (4444/4567) to the cluster's internal subnet only — they have no reason to be reachable from outside the 3 nodes.
+
+### Startup on Reboot
+
+Confirm all required services are enabled:
+
+```bash
+sudo systemctl is-enabled mysql haproxy keepalived mysqlchk.socket
+```
+
+Reboot each node one at a time and confirm after each reboot:
+- Percona rejoins the cluster (`wsrep_cluster_size` back to 3, `wsrep_local_state_comment = Synced`)
+- HAProxy is running and health-checking (`systemctl status haproxy`)
+- Keepalived comes back up in the correct state (MASTER/BACKUP as expected by priority)
