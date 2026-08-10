@@ -13,6 +13,7 @@ This repository contains solutions and documentation for various Linux and DevOp
 | Software Management | Package management |
 | Scripting | Bash scripting exercises |
 | Firewall | iptables |
+| Network Routing & VPN Simulation | Routing tables, Static routing, VPN tunnels, NAT |
 | High Availability | Percona XtraDB Cluster, HAProxy, Keepalived |
 
 ## Documentation
@@ -24,6 +25,7 @@ This repository contains solutions and documentation for various Linux and DevOp
 - 📁 [Software Installation and Management](./Software%20Installation%20and%20Management/)
 - 📁 [Scripting and The Shell](./Scripting%20and%20The%20Shell/)
 - 📁 [Firewall & IP Tables Management](./Firewall%20&%20IP%20Tables%20Management/)
+- 📁 [Network Routing & VPN Simulation](./Network%20Routing%20&%20VPN%20Simulation/)
 - 📁 [High Availability Implementation Task](./High%20Availability%20Implementation%20Task/)
 
 ## Task Subjects
