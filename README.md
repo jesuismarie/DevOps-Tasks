@@ -14,9 +14,9 @@ This repository contains solutions and documentation for various Linux and DevOp
 | Scripting | Bash scripting exercises |
 | Firewall | iptables |
 | Network Routing & VPN Simulation | Routing tables, Static routing, VPN tunnels, NAT |
-| High Availability | Percona XtraDB Cluster, HAProxy, Keepalived |
+| High Availability Implementation | Percona XtraDB Cluster, HAProxy, Keepalived |
 | Containerization | Linux namespaces, unshare, chroot, cgroups, process and resource isolation |
-| CI/CD for Web Application on EC2 | GitHub Actions, Docker, Docker Compose, Terraform AWS EC2, shell scripting |
+| CI/CD for Web Application on EC2 | GitHub Actions, Docker, Docker Compose, Terraform, AWS EC2, shell scripting |
 
 ## Documentation
 
@@ -28,7 +28,7 @@ This repository contains solutions and documentation for various Linux and DevOp
 * 📁 [Scripting and The Shell](./Scripting%20and%20The%20Shell/)
 * 📁 [Firewall & IP Tables Management](./Firewall%20&%20IP%20Tables%20Management/)
 * 📁 [Network Routing & VPN Simulation](./Network%20Routing%20&%20VPN%20Simulation/)
-* 📁 [High Availability Implementation Task](./High%20Availability%20Implementation%20Task/)
+* 📁 [High Availability Implementation](./High%20Availability%20Implementation/)
 * 📁 [Containerization](./Containerization/)
 * 📁 [CI/CD for Web Application on EC2](./CI%7CCD%20for%20Web%20Application%20on%20EC2/)
 
